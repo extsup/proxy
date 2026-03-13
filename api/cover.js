@@ -28,12 +28,12 @@ module.exports = async (req, res) => {
                req.socket?.remoteAddress ||
                "unknown";
     const now = Date.now();
-    const requests = (rateLimit.get(ip) || []).filter(t => now - t < 3600000);
+    const requests = (rateLimit.get(ip) || []).filter(t => now - t < 43200000);
 
     console.log(`IP: ${ip} | requests: ${requests.length} | limit: ${HOUR_LIMIT}`);
 
     if (requests.length >= HOUR_LIMIT)
-      return send(res, 429, { error: `Limit ${HOUR_LIMIT} request/jam tercapai`, ip });
+      return send(res, 429, { error: `Limit ${HOUR_LIMIT} request/12 jam tercapai`, ip });
 
     requests.push(now);
     rateLimit.set(ip, requests);
