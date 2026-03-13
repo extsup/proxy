@@ -1,0 +1,15 @@
+{
+  "name": "cover-proxy",
+  "version": "1.0.0",
+  "description": "Image proxy khusus cover manga/komik - Netlify Functions",
+  "main": "netlify/functions/cover.js",
+  "scripts": {
+    "dev": "netlify dev",
+    "deploy": "netlify deploy --prod"
+  },
+  "keywords": ["proxy", "image", "manga", "cover", "netlify"],
+  "license": "MIT",
+  "devDependencies": {
+    "netlify-cli": "^17.0.0"
+  }
+}
