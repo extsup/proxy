@@ -3,7 +3,7 @@ const http = require("http");
 const { URL } = require("url");
 const sharp = require("sharp");
 
-const DAILY_LIMIT = 1000;
+const DAILY_LIMIT = 10;
 
 let reqCount = 0;
 let resetDate = new Date().toDateString();
