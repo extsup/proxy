@@ -8,17 +8,15 @@ const sharp = require("sharp");
 const ALLOWED_IMAGE_DOMAINS = [
   // Komikcast
   "minio-prod-2.komikcast.to",
-  "cdn.komikcast.site",
-  "cdn.komikcast.io",
-  // Komiku
   "cdn.komiku.cc",
-  // Tambah domain baru di sini:
+  "softkomik.co",
 ];
 
 // Referer yang dikirim saat fetch gambar (per domain)
 const REFERERS = {
   "komikcast": "https://v1.komikcast.fit",
   "komiku":    "https://komiku.cc",
+  "softkomik": "https://softkomik.co",
 };
 
 const MAX_WIDTH  = 600;
