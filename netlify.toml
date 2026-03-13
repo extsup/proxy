@@ -1,18 +1,11 @@
 [build]
   functions = "netlify/functions"
-  publish = "public"
 
-# ──────────────────────────────────────────
-# Redirect: /cover?url=... → function
-# ──────────────────────────────────────────
 [[redirects]]
   from = "/cover"
   to = "/.netlify/functions/cover"
   status = 200
 
-# ──────────────────────────────────────────
-# Security headers untuk semua respons
-# ──────────────────────────────────────────
 [[headers]]
   for = "/*"
   [headers.values]
@@ -20,7 +13,6 @@
     X-Content-Type-Options = "nosniff"
     Referrer-Policy = "strict-origin-when-cross-origin"
 
-# CORS untuk endpoint /cover (diakses dari extension/reader)
 [[headers]]
   for = "/cover"
   [headers.values]
