@@ -59,7 +59,8 @@ module.exports = async (req, res) => {
   try { metadata = await sharp(data).metadata(); }
   catch { return send(res, 502, { error: "Gagal membaca dimensi gambar" }); }
 
-  if (metadata.height > MAX_HEIGHT)
+  const skipCheck = parsed.hostname.includes("minio");
+  if (!skipCheck && metadata.height > MAX_HEIGHT)
     return send(res, 403, { error: `Gambar terlalu tinggi (${metadata.height}px), kemungkinan halaman komik` });
 
   let output;
