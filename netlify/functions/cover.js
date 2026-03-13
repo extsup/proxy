@@ -7,7 +7,7 @@ const sharp = require("sharp");
 
 const CUSTOM_REFERERS = {
   "komikcast": "https://v1.komikcast.fit",
-  "shinigami": "https://b.shinigami.asia",
+  "shinigami": "https://assets.shngm.id",
   "softkomik": "https://softkomik.co",
   "komiku":    "https://komiku.cc",
 };
