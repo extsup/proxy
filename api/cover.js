@@ -3,7 +3,7 @@ const http = require("http");
 const { URL } = require("url");
 const sharp = require("sharp");
 
-const DAILY_LIMIT = 5;
+const HOUR_LIMIT = 2;
 const rateLimit = new Map();
 
 setInterval(() => {
@@ -21,12 +21,20 @@ module.exports = async (req, res) => {
   const { url, w, h, q, key, ...rest } = req.query || {};
 
   const validKey = process.env.key && key === process.env.key;
+
   if (!validKey) {
-    const ip = req.headers["x-forwarded-for"]?.split(",")[0].trim() || req.headers["x-real-ip"] || "unknown";
+    const ip = req.headers["x-forwarded-for"]?.split(",")[0].trim() ||
+               req.headers["x-real-ip"] ||
+               req.socket?.remoteAddress ||
+               "unknown";
     const now = Date.now();
     const requests = (rateLimit.get(ip) || []).filter(t => now - t < 3600000);
-    if (requests.length >= DAILY_LIMIT)
-      return send(res, 429, { error: `Limit ${DAILY_LIMIT} request/jam tercapai` });
+
+    console.log(`IP: ${ip} | requests: ${requests.length} | limit: ${HOUR_LIMIT}`);
+
+    if (requests.length >= HOUR_LIMIT)
+      return send(res, 429, { error: `Limit ${HOUR_LIMIT} request/jam tercapai`, ip });
+
     requests.push(now);
     rateLimit.set(ip, requests);
   }
