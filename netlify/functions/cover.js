@@ -36,7 +36,7 @@ exports.handler = async (event) => {
   const height  = h ? parseInt(h, 10) : null;
   const quality = Math.min(100, Math.max(10, parseInt(q || "85", 10)));
 
-  let imageReferer = parsed.origin;
+  let imageReferer = null;
   for (const [key, val] of Object.entries(CUSTOM_REFERERS)) {
     if (parsed.hostname.includes(key)) { imageReferer = val; break; }
   }
@@ -83,18 +83,15 @@ function fetchImage(url, referer) {
     const lib = url.startsWith("https") ? https : http;
     const chunks = [];
 
-    lib.get(url, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Referer": referer,
-        "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
-        "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
-        "Sec-Fetch-Dest": "image",
-        "Sec-Fetch-Mode": "no-cors",
-        "Sec-Fetch-Site": "cross-site",
-      },
-      timeout: 10000,
-    }, (res) => {
+    const headers = {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+    };
+
+    // Hanya tambahkan Referer jika ada
+    if (referer) headers["Referer"] = referer;
+
+    lib.get(url, { headers, timeout: 10000 }, (res) => {
       if ([301, 302, 307, 308].includes(res.statusCode) && res.headers.location)
         return fetchImage(res.headers.location, referer).then(resolve).catch(reject);
 
