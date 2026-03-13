@@ -3,7 +3,7 @@ const http = require("http");
 const { URL } = require("url");
 const sharp = require("sharp");
 
-const DAILY_LIMIT = 50;
+const DAILY_LIMIT = 5;
 const rateLimit = new Map();
 
 setInterval(() => {
