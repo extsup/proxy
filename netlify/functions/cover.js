@@ -6,17 +6,20 @@ const sharp = require("sharp");
 // ── KONFIGURASI ──────────────────────────────────────────────────────────────
 
 const ALLOWED_IMAGE_DOMAINS = [
-  // Komikcast
   "minio-prod-2.komikcast.to",
   "cdn.komiku.cc",
   "softkomik.co",
 ];
 
-// Referer yang dikirim saat fetch gambar (per domain)
 const REFERERS = {
   "komikcast": "https://v1.komikcast.fit",
   "komiku":    "https://komiku.cc",
   "softkomik": "https://softkomik.co",
+};
+
+const BLOCKED_PATHS = {
+  "komiku": [/^\/images\//],
+  // "softkomik": [/^\/path\//],  // ← aktifkan jika sudah tahu polanya
 };
 
 const MAX_WIDTH  = 600;
@@ -40,14 +43,23 @@ exports.handler = async (event) => {
     return err(403, `Domain '${parsed.hostname}' tidak diizinkan`);
   }
 
+  // Cek blocked path
+  for (const [key, patterns] of Object.entries(BLOCKED_PATHS)) {
+    if (parsed.hostname.includes(key)) {
+      if (patterns.some(p => p.test(parsed.pathname))) {
+        return err(403, "Forbidden: URL terdeteksi sebagai halaman komik");
+      }
+    }
+  }
+
   const width   = Math.min(MAX_WIDTH,  parseInt(w || "0", 10));
   const height  = Math.min(MAX_HEIGHT, parseInt(h || "0", 10));
   const quality = Math.min(100, Math.max(10, parseInt(q || "85", 10)));
 
-  // Tentukan referer berdasarkan domain
   let referer = parsed.origin;
   if (parsed.hostname.includes("komikcast")) referer = REFERERS.komikcast;
   if (parsed.hostname.includes("komiku"))    referer = REFERERS.komiku;
+  if (parsed.hostname.includes("softkomik")) referer = REFERERS.softkomik;
 
   let data, contentType;
   try {
