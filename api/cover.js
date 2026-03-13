@@ -3,12 +3,26 @@ const http = require("http");
 const { URL } = require("url");
 const sharp = require("sharp");
 
-const MAX_HEIGHT = 1500;
+const DAILY_LIMIT = 1000;
+
+let reqCount = 0;
+let resetDate = new Date().toDateString();
 
 module.exports = async (req, res) => {
   if (req.method !== "GET") return send(res, 405, { error: "Method Not Allowed" });
 
-  const { url, w, h, q, ...rest } = req.query || {};
+  const { url, w, h, q, key, ...rest } = req.query || {};
+
+  const today = new Date().toDateString();
+  if (today !== resetDate) { reqCount = 0; resetDate = today; }
+
+  const validKey = process.env.PROXY_KEY && key === process.env.PROXY_KEY;
+  if (!validKey) {
+    if (reqCount >= DAILY_LIMIT)
+      return send(res, 429, { error: `Limit harian ${DAILY_LIMIT} request tercapai` });
+    reqCount++;
+  }
+
   if (!url) return send(res, 400, { error: "Missing 'url' parameter" });
 
   let imageUrl = decodeURIComponent(url);
@@ -41,14 +55,6 @@ module.exports = async (req, res) => {
   } catch (e) {
     return send(res, 502, { error: `Gagal fetch gambar: ${e.message}`, url: imageUrl });
   }
-
-  let metadata;
-  try { metadata = await sharp(data).metadata(); }
-  catch { return send(res, 502, { error: "Gagal membaca dimensi gambar" }); }
-
-  const skipCheck = parsed.hostname.includes("minio");
-  if (!skipCheck && metadata.height > MAX_HEIGHT)
-    return send(res, 403, { error: `Gambar terlalu tinggi (${metadata.height}px), kemungkinan halaman komik` });
 
   let output;
   try {
