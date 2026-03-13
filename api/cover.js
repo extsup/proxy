@@ -20,7 +20,7 @@ module.exports = async (req, res) => {
 
   const { url, w, h, q, key, ...rest } = req.query || {};
 
-  const validKey = process.env.PROXY_KEY && key === process.env.PROXY_KEY;
+  const validKey = process.env.key && key === process.env.key;
   if (!validKey) {
     const ip = req.headers["x-forwarded-for"]?.split(",")[0].trim() || req.headers["x-real-ip"] || "unknown";
     const now = Date.now();
