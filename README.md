@@ -1,0 +1,1 @@
+proxy resize cover
