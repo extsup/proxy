@@ -5,20 +5,13 @@ const sharp = require("sharp");
 
 // ── KONFIGURASI ──────────────────────────────────────────────────────────────
 
-const ALLOWED_IMAGE_DOMAINS = [
-  "minio-prod-2.komikcast.to",
-  "cdn.komiku.cc",
-  "softkomik.co",
+const ALLOWED_REFERER_PATTERNS = [
+  /\/(komik|manga|series|manhwa|manhua)\//i,
 ];
 
-const REFERERS = {
+// Referer khusus per domain (untuk situs yang butuh referer spesifik)
+const CUSTOM_REFERERS = {
   "komikcast": "https://v1.komikcast.fit",
-  "komiku":    "https://komiku.cc",
-  "softkomik": "https://softkomik.co",
-};
-
-const BLOCKED_PATHS = {
-  "komiku": [/^\/images\//],
 };
 
 const MAX_WIDTH  = 600;
@@ -32,37 +25,47 @@ exports.handler = async (event) => {
   const { url, w, h, q } = event.queryStringParameters || {};
   if (!url) return err(400, "Missing 'url' parameter");
 
+  // Cek Referer
+  const referer = event.headers["referer"] || event.headers["origin"] || "";
+  if (referer) {
+    let parsedRef;
+    try { parsedRef = new URL(referer); }
+    catch { return err(403, "Referer tidak valid"); }
+
+    const isRoot = parsedRef.pathname === "/" || parsedRef.pathname === "";
+    const isAllowed = ALLOWED_REFERER_PATTERNS.some(p => p.test(parsedRef.pathname));
+
+    if (!isRoot && !isAllowed) {
+      return err(403, "Forbidden: halaman ini tidak diizinkan menggunakan proxy");
+    }
+  }
+
   const imageUrl = decodeURIComponent(url);
 
   let parsed;
   try { parsed = new URL(imageUrl); }
-  catch { return err(400, "URL tidak valid"); }
+  catch { return err(400, "URL gambar tidak valid"); }
 
-  if (!ALLOWED_IMAGE_DOMAINS.some(d => parsed.hostname === d || parsed.hostname.endsWith("." + d))) {
-    return err(403, `Domain '${parsed.hostname}' tidak diizinkan`);
-  }
-
-  // Cek blocked path
-  for (const [key, patterns] of Object.entries(BLOCKED_PATHS)) {
-    if (parsed.hostname.includes(key)) {
-      if (patterns.some(p => p.test(parsed.pathname))) {
-        return err(403, "Forbidden: URL terdeteksi sebagai halaman komik");
-      }
-    }
+  if (!["http:", "https:"].includes(parsed.protocol)) {
+    return err(400, "Protocol tidak didukung");
   }
 
   const width   = Math.min(MAX_WIDTH,  parseInt(w || "0", 10));
   const height  = Math.min(MAX_HEIGHT, parseInt(h || "0", 10));
   const quality = Math.min(100, Math.max(10, parseInt(q || "85", 10)));
 
-  let referer = parsed.origin;
-  if (parsed.hostname.includes("komikcast")) referer = REFERERS.komikcast;
-  if (parsed.hostname.includes("komiku"))    referer = REFERERS.komiku;
-  if (parsed.hostname.includes("softkomik")) referer = REFERERS.softkomik;
+  // Tentukan referer ke sumber gambar
+  let imageReferer = parsed.origin;
+  for (const [key, val] of Object.entries(CUSTOM_REFERERS)) {
+    if (parsed.hostname.includes(key)) {
+      imageReferer = val;
+      break;
+    }
+  }
 
   let data, contentType;
   try {
-    ({ data, contentType } = await fetchImage(imageUrl, referer));
+    ({ data, contentType } = await fetchImage(imageUrl, imageReferer));
   } catch (e) {
     return err(502, `Gagal fetch gambar: ${e.message}`);
   }
@@ -103,9 +106,14 @@ function fetchImage(url, referer) {
 
     lib.get(url, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; CoverProxy/1.0)",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Referer": referer,
-        "Accept": "image/webp,image/*,*/*;q=0.8",
+        "Origin": referer,
+        "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+        "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Sec-Fetch-Dest": "image",
+        "Sec-Fetch-Mode": "no-cors",
+        "Sec-Fetch-Site": "cross-site",
       },
       timeout: 10000,
     }, (res) => {
