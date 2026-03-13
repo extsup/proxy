@@ -19,7 +19,7 @@ const MAX_HEIGHT = 1500;
 exports.handler = async (event) => {
   if (event.httpMethod !== "GET") return err(405, "Method Not Allowed");
 
-  const { url, q, ...rest } = event.queryStringParameters || {};
+  const { url, w, h, q, ...rest } = event.queryStringParameters || {};
   if (!url) return err(400, "Missing 'url' parameter");
 
   let imageUrl = decodeURIComponent(url);
@@ -32,6 +32,8 @@ exports.handler = async (event) => {
 
   if (!["http:", "https:"].includes(parsed.protocol)) return err(400, "Protocol tidak didukung");
 
+  const width   = w ? parseInt(w, 10) : null;
+  const height  = h ? parseInt(h, 10) : null;
   const quality = Math.min(100, Math.max(10, parseInt(q || "85", 10)));
 
   let imageReferer = parsed.origin;
@@ -39,9 +41,9 @@ exports.handler = async (event) => {
     if (parsed.hostname.includes(key)) { imageReferer = val; break; }
   }
 
-  let data, contentType;
+  let data;
   try {
-    ({ data, contentType } = await fetchImage(imageUrl, imageReferer));
+    ({ data } = await fetchImage(imageUrl, imageReferer));
   } catch (e) {
     return err(502, `Gagal fetch gambar: ${e.message}`);
   }
@@ -57,7 +59,7 @@ exports.handler = async (event) => {
   let output;
   try {
     output = await sharp(data)
-      .resize(null, MAX_HEIGHT, { fit: "inside", withoutEnlargement: true })
+      .resize(width, height, { fit: "inside", withoutEnlargement: true })
       .webp({ quality })
       .toBuffer();
   } catch { return err(502, "Gagal memproses gambar"); }
