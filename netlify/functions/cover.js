@@ -45,7 +45,7 @@ exports.handler = async (event) => {
   try {
     ({ data } = await fetchImage(imageUrl, imageReferer));
   } catch (e) {
-    return err(502, `Gagal fetch gambar: ${e.message}`);
+    return err(502, `Gagal fetch gambar: ${e.message} | referer: ${imageReferer} | url: ${imageUrl}`);
   }
 
   let metadata;
