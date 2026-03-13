@@ -9,9 +9,9 @@ const ALLOWED_REFERER_PATTERNS = [
   /\/(komik|manga|series|manhwa|manhua)\//i,
 ];
 
-// Referer khusus per domain (untuk situs yang butuh referer spesifik)
 const CUSTOM_REFERERS = {
   "komikcast": "https://v1.komikcast.fit",
+  "shinigami": "https://09.shinigami.asia",
 };
 
 const MAX_WIDTH  = 600;
@@ -22,8 +22,17 @@ const MAX_HEIGHT = 900;
 exports.handler = async (event) => {
   if (event.httpMethod !== "GET") return err(405, "Method Not Allowed");
 
-  const { url, w, h, q } = event.queryStringParameters || {};
+  const { url, w, h, q, ...rest } = event.queryStringParameters || {};
   if (!url) return err(400, "Missing 'url' parameter");
+
+  // Rekonstruksi URL jika ada sisa parameter (misal X-Amz-* dari Komikcast)
+  let imageUrl = decodeURIComponent(url);
+  const extraParams = Object.entries(rest)
+    .map(([k, v]) => `${k}=${v}`)
+    .join("&");
+  if (extraParams) {
+    imageUrl += (imageUrl.includes("?") ? "&" : "?") + extraParams;
+  }
 
   // Cek Referer
   const referer = event.headers["referer"] || event.headers["origin"] || "";
@@ -39,8 +48,6 @@ exports.handler = async (event) => {
       return err(403, "Forbidden: halaman ini tidak diizinkan menggunakan proxy");
     }
   }
-
-  const imageUrl = decodeURIComponent(url);
 
   let parsed;
   try { parsed = new URL(imageUrl); }
