@@ -9,6 +9,9 @@
   },
   "keywords": ["proxy", "image", "manga", "cover", "netlify"],
   "license": "MIT",
+  "dependencies": {
+    "sharp": "^0.33.0"
+  },
   "devDependencies": {
     "netlify-cli": "^17.0.0"
   }
