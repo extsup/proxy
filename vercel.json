@@ -1,0 +1,14 @@
+{
+  "rewrites": [
+    { "source": "/cover", "destination": "/api/cover" }
+  ],
+  "headers": [
+    {
+      "source": "/api/cover",
+      "headers": [
+        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Access-Control-Allow-Methods", "value": "GET, OPTIONS" }
+      ]
+    }
+  ]
+}
