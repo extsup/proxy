@@ -3,13 +3,13 @@ const http = require("http");
 const { URL } = require("url");
 const sharp = require("sharp");
 
-const HOUR_LIMIT = 2;
+const DAY_LIMIT = 3;
 const rateLimit = new Map();
 
 setInterval(() => {
   const now = Date.now();
   for (const [ip, requests] of rateLimit.entries()) {
-    const valid = requests.filter(t => now - t < 3600000);
+    const valid = requests.filter(t => now - t < 86400000);
     if (valid.length === 0) rateLimit.delete(ip);
     else rateLimit.set(ip, valid);
   }
@@ -28,12 +28,10 @@ module.exports = async (req, res) => {
                req.socket?.remoteAddress ||
                "unknown";
     const now = Date.now();
-    const requests = (rateLimit.get(ip) || []).filter(t => now - t < 3600000);
+    const requests = (rateLimit.get(ip) || []).filter(t => now - t < 86400000);
 
-    console.log(`IP: ${ip} | requests: ${requests.length} | limit: ${HOUR_LIMIT}`);
-
-    if (requests.length >= HOUR_LIMIT)
-      return send(res, 429, { error: `Limit ${HOUR_LIMIT} request/jam tercapai`, ip });
+    if (requests.length >= DAY_LIMIT)
+      return send(res, 429, { error: `Limit ${DAY_LIMIT} request/hari tercapai` });
 
     requests.push(now);
     rateLimit.set(ip, requests);
