@@ -3,24 +3,32 @@ const http = require("http");
 const { URL } = require("url");
 const sharp = require("sharp");
 
-const DAILY_LIMIT = 10;
+const DAILY_LIMIT = 50;
+const rateLimit = new Map();
 
-let reqCount = 0;
-let resetDate = new Date().toDateString();
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, requests] of rateLimit.entries()) {
+    const valid = requests.filter(t => now - t < 3600000);
+    if (valid.length === 0) rateLimit.delete(ip);
+    else rateLimit.set(ip, valid);
+  }
+}, 600000);
 
 module.exports = async (req, res) => {
   if (req.method !== "GET") return send(res, 405, { error: "Method Not Allowed" });
 
   const { url, w, h, q, key, ...rest } = req.query || {};
 
-  const today = new Date().toDateString();
-  if (today !== resetDate) { reqCount = 0; resetDate = today; }
-
   const validKey = process.env.PROXY_KEY && key === process.env.PROXY_KEY;
   if (!validKey) {
-    if (reqCount >= DAILY_LIMIT)
-      return send(res, 429, { error: `Limit harian ${DAILY_LIMIT} request tercapai` });
-    reqCount++;
+    const ip = req.headers["x-forwarded-for"]?.split(",")[0].trim() || req.headers["x-real-ip"] || "unknown";
+    const now = Date.now();
+    const requests = (rateLimit.get(ip) || []).filter(t => now - t < 3600000);
+    if (requests.length >= DAILY_LIMIT)
+      return send(res, 429, { error: `Limit ${DAILY_LIMIT} request/jam tercapai` });
+    requests.push(now);
+    rateLimit.set(ip, requests);
   }
 
   if (!url) return send(res, 400, { error: "Missing 'url' parameter" });
