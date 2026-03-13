@@ -9,7 +9,7 @@ const rateLimit = new Map();
 setInterval(() => {
   const now = Date.now();
   for (const [ip, requests] of rateLimit.entries()) {
-    const valid = requests.filter(t => now - t < 3600000);
+    const valid = requests.filter(t => now - t < 43200000);
     if (valid.length === 0) rateLimit.delete(ip);
     else rateLimit.set(ip, valid);
   }
