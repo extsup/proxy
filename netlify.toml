@@ -1,0 +1,38 @@
+[build]
+  functions = "netlify/functions"
+  publish = "public"
+
+# ──────────────────────────────────────────
+# Redirect: /cover?url=... → function
+# ──────────────────────────────────────────
+[[redirects]]
+  from = "/cover"
+  to = "/.netlify/functions/cover"
+  status = 200
+
+# ──────────────────────────────────────────
+# Security headers untuk semua response
+# ──────────────────────────────────────────
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+
+# CORS untuk endpoint /cover (diakses dari extension/reader)
+[[headers]]
+  for = "/cover"
+  [headers.values]
+    Access-Control-Allow-Origin = "*"
+    Access-Control-Allow-Methods = "GET, OPTIONS"
+    Access-Control-Allow-Headers = "Content-Type, Referer, Origin"
+    Cache-Control = "public, max-age=86400, s-maxage=86400"
+
+[[headers]]
+  for = "/.netlify/functions/cover"
+  [headers.values]
+    Access-Control-Allow-Origin = "*"
+    Access-Control-Allow-Methods = "GET, OPTIONS"
+    Access-Control-Allow-Headers = "Content-Type, Referer, Origin"
+    Cache-Control = "public, max-age=86400, s-maxage=86400"
