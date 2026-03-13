@@ -5,69 +5,38 @@ const sharp = require("sharp");
 
 // ── KONFIGURASI ──────────────────────────────────────────────────────────────
 
-const ALLOWED_REFERER_PATTERNS = [
-  /\/(komik|manga|series|manhwa|manhua)\//i,
-];
-
 const CUSTOM_REFERERS = {
   "komikcast": "https://v1.komikcast.fit",
-  "shinigami": "https://09.shinigami.asia",
+  "shinigami": "https://b.shinigami.asia",
+  "softkomik": "https://softkomik.co",
+  "komiku":    "https://komiku.cc",
 };
 
-const MAX_WIDTH  = 600;
-const MAX_HEIGHT = 900;
+const MAX_HEIGHT = 1500;
 
 // ── HANDLER ──────────────────────────────────────────────────────────────────
 
 exports.handler = async (event) => {
   if (event.httpMethod !== "GET") return err(405, "Method Not Allowed");
 
-  const { url, w, h, q, ...rest } = event.queryStringParameters || {};
+  const { url, q, ...rest } = event.queryStringParameters || {};
   if (!url) return err(400, "Missing 'url' parameter");
 
-  // Rekonstruksi URL jika ada sisa parameter (misal X-Amz-* dari Komikcast)
   let imageUrl = decodeURIComponent(url);
-  const extraParams = Object.entries(rest)
-    .map(([k, v]) => `${k}=${v}`)
-    .join("&");
-  if (extraParams) {
-    imageUrl += (imageUrl.includes("?") ? "&" : "?") + extraParams;
-  }
-
-  // Cek Referer
-  const referer = event.headers["referer"] || event.headers["origin"] || "";
-  if (referer) {
-    let parsedRef;
-    try { parsedRef = new URL(referer); }
-    catch { return err(403, "Referer tidak valid"); }
-
-    const isRoot = parsedRef.pathname === "/" || parsedRef.pathname === "";
-    const isAllowed = ALLOWED_REFERER_PATTERNS.some(p => p.test(parsedRef.pathname));
-
-    if (!isRoot && !isAllowed) {
-      return err(403, "Forbidden: halaman ini tidak diizinkan menggunakan proxy");
-    }
-  }
+  const extraParams = Object.entries(rest).map(([k, v]) => `${k}=${v}`).join("&");
+  if (extraParams) imageUrl += (imageUrl.includes("?") ? "&" : "?") + extraParams;
 
   let parsed;
   try { parsed = new URL(imageUrl); }
   catch { return err(400, "URL gambar tidak valid"); }
 
-  if (!["http:", "https:"].includes(parsed.protocol)) {
-    return err(400, "Protocol tidak didukung");
-  }
+  if (!["http:", "https:"].includes(parsed.protocol)) return err(400, "Protocol tidak didukung");
 
-  const width   = Math.min(MAX_WIDTH,  parseInt(w || "0", 10));
-  const height  = Math.min(MAX_HEIGHT, parseInt(h || "0", 10));
   const quality = Math.min(100, Math.max(10, parseInt(q || "85", 10)));
 
-  // Tentukan referer ke sumber gambar
   let imageReferer = parsed.origin;
   for (const [key, val] of Object.entries(CUSTOM_REFERERS)) {
-    if (parsed.hostname.includes(key)) {
-      imageReferer = val;
-      break;
-    }
+    if (parsed.hostname.includes(key)) { imageReferer = val; break; }
   }
 
   let data, contentType;
@@ -77,25 +46,26 @@ exports.handler = async (event) => {
     return err(502, `Gagal fetch gambar: ${e.message}`);
   }
 
-  let output = data;
-  let mime   = contentType || "image/jpeg";
+  let metadata;
+  try { metadata = await sharp(data).metadata(); }
+  catch { return err(502, "Gagal membaca dimensi gambar"); }
 
-  if (width > 0 || height > 0) {
-    try {
-      output = await sharp(data)
-        .resize(width || null, height || null, { fit: "inside", withoutEnlargement: true })
-        .webp({ quality })
-        .toBuffer();
-      mime = "image/webp";
-    } catch {
-      // fallback: kembalikan original
-    }
+  if (metadata.height > MAX_HEIGHT) {
+    return err(403, `Gambar terlalu tinggi (${metadata.height}px), kemungkinan halaman komik`);
   }
+
+  let output;
+  try {
+    output = await sharp(data)
+      .resize(null, MAX_HEIGHT, { fit: "inside", withoutEnlargement: true })
+      .webp({ quality })
+      .toBuffer();
+  } catch { return err(502, "Gagal memproses gambar"); }
 
   return {
     statusCode: 200,
     headers: {
-      "Content-Type": mime,
+      "Content-Type": "image/webp",
       "Cache-Control": "no-store",
       "Access-Control-Allow-Origin": "*",
     },
