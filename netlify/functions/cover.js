@@ -19,7 +19,6 @@ const REFERERS = {
 
 const BLOCKED_PATHS = {
   "komiku": [/^\/images\//],
-  // "softkomik": [/^\/path\//],  // ← aktifkan jika sudah tahu polanya
 };
 
 const MAX_WIDTH  = 600;
