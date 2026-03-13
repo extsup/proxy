@@ -11,7 +11,7 @@
   status = 200
 
 # ──────────────────────────────────────────
-# Security headers untuk semua response
+# Security headers untuk semua respons
 # ──────────────────────────────────────────
 [[headers]]
   for = "/*"
