@@ -1,7 +1,8 @@
 /**
  * Cover Image Proxy - Netlify Function
  * Hanya untuk resize cover manga/komik, BUKAN untuk halaman komik.
- * 
+ * Resize dilakukan langsung dengan sharp (tidak redirect ke wsrv.nl).
+ *
  * Usage:
  *   /.netlify/functions/cover?url=https://example.com/cover.jpg&w=300&h=400
  *   /cover?url=...  (via redirect di netlify.toml)
@@ -10,6 +11,7 @@
 const https = require("https");
 const http = require("http");
 const { URL } = require("url");
+const sharp = require("sharp");
 
 // ============================================================
 // KONFIGURASI - Sesuaikan dengan kebutuhanmu
@@ -172,33 +174,43 @@ exports.handler = async (event) => {
     return respond(502, `Gagal mengambil gambar: ${err.message}`);
   }
 
-  // --- 7. Kembalikan gambar (tanpa resize jika tidak diminta) ---
-  // Netlify Functions tidak punya sharp/jimp secara native,
-  // jadi kita forward saja ke wsrv.nl untuk resize jika diperlukan.
-  if (w > 0 || h > 0) {
-    // Redirect ke wsrv.nl dengan parameter resize
-    const wsrvUrl = buildWsrvUrl(imageUrl, w, h, quality);
-    return {
-      statusCode: 302,
-      headers: {
-        Location: wsrvUrl,
-        "Cache-Control": "public, max-age=86400",
-        "X-Proxy-By": "cover-proxy",
-      },
-      body: "",
-    };
+  // --- 7. Resize dengan sharp (jika w/h diminta) lalu kembalikan ---
+  let outputBuffer;
+  let outputContentType = "image/webp";
+
+  try {
+    let pipeline = sharp(imageData);
+
+    if (w > 0 || h > 0) {
+      pipeline = pipeline.resize(
+        w > 0 ? w : null,
+        h > 0 ? h : null,
+        {
+          fit: "inside",          // pertahankan rasio, tidak diperbesar
+          withoutEnlargement: true,
+        }
+      );
+    }
+
+    outputBuffer = await pipeline
+      .webp({ quality })
+      .toBuffer();
+  } catch (err) {
+    console.error(`[ERROR] Sharp gagal: ${err.message}`);
+    // Fallback: kembalikan gambar original tanpa diproses
+    outputBuffer = imageData;
+    outputContentType = contentType || "image/jpeg";
   }
 
-  // Tanpa resize → kembalikan langsung
   return {
     statusCode: 200,
     headers: {
-      "Content-Type": contentType || "image/jpeg",
+      "Content-Type": outputContentType,
       "Cache-Control": "public, max-age=86400",
       "X-Proxy-By": "cover-proxy",
       "Access-Control-Allow-Origin": "*",
     },
-    body: imageData.toString("base64"),
+    body: outputBuffer.toString("base64"),
     isBase64Encoded: true,
   };
 };
@@ -225,18 +237,6 @@ function isAllowedDomain(hostname) {
   );
 }
 
-function buildWsrvUrl(imageUrl, w, h, quality) {
-  const base = "https://wsrv.nl/?";
-  const params = new URLSearchParams({
-    url: imageUrl,
-    ...(w > 0 ? { w: String(w) } : {}),
-    ...(h > 0 ? { h: String(h) } : {}),
-    q: String(quality),
-    output: "webp",
-    we: "1", // without enlargement
-  });
-  return base + params.toString();
-}
 
 function fetchImage(url) {
   return new Promise((resolve, reject) => {
