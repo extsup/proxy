@@ -89,7 +89,7 @@ exports.handler = async (event) => {
     statusCode: 200,
     headers: {
       "Content-Type": mime,
-      "Cache-Control": "public, max-age=86400",
+      "Cache-Control": "no-store",
       "Access-Control-Allow-Origin": "*",
     },
     body: output.toString("base64"),
