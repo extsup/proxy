@@ -65,23 +65,13 @@ module.exports = async (req, res) => {
   const height  = h ? parseInt(h, 10) : null;
   const quality = Math.min(100, Math.max(10, parseInt(q || "85", 10)));
 
-  // Coba fetch + proses dengan sharp
   let data, contentType;
   try {
     ({ data, contentType } = await fetchImage(imageUrl, parsed.origin));
   } catch (fetchErr) {
-    // Fetch gagal (403, timeout, dll) — return gambar asli langsung
-    console.warn(`Fetch gagal (${fetchErr.message}), mencoba fallback raw: ${imageUrl}`);
-    try {
-      ({ data, contentType } = await fetchRaw(imageUrl, parsed.origin));
-    } catch (rawErr) {
-      return send(res, 502, { error: `Gagal fetch gambar: ${fetchErr.message}`, url: imageUrl });
-    }
-
-    res.setHeader("Content-Type", contentType || "image/jpeg");
-    res.setHeader("Cache-Control", "public, max-age=86400");
-    res.setHeader("Access-Control-Allow-Origin", "*");
-    return res.status(200).send(data);
+    // Gagal fetch — redirect ke URL asli, biarkan browser load sendiri
+    console.warn(`Fetch gagal (${fetchErr.message}), redirect ke: ${imageUrl}`);
+    return res.redirect(302, imageUrl);
   }
 
   let output;
@@ -91,12 +81,9 @@ module.exports = async (req, res) => {
       .webp({ quality })
       .toBuffer();
   } catch {
-    // Sharp gagal proses — return data mentah
-    console.warn(`Sharp gagal, return raw: ${imageUrl}`);
-    res.setHeader("Content-Type", contentType || "image/jpeg");
-    res.setHeader("Cache-Control", "public, max-age=86400");
-    res.setHeader("Access-Control-Allow-Origin", "*");
-    return res.status(200).send(data);
+    // Sharp gagal — redirect ke URL asli
+    console.warn(`Sharp gagal, redirect ke: ${imageUrl}`);
+    return res.redirect(302, imageUrl);
   }
 
   res.setHeader("Content-Type", "image/webp");
@@ -127,41 +114,6 @@ function fetchImage(url, referer) {
       if (res.statusCode !== 200)
         return reject(new Error(`HTTP ${res.statusCode}`));
       const contentType = res.headers["content-type"] || "image/jpeg";
-      res.on("data", c => chunks.push(c));
-      res.on("end", () => resolve({ data: Buffer.concat(chunks), contentType }));
-      res.on("error", reject);
-    })
-    .on("error", reject)
-    .on("timeout", function() { this.destroy(); reject(new Error("Timeout")); });
-  });
-}
-
-function fetchRaw(url, referer) {
-  return new Promise((resolve, reject) => {
-    const lib = url.startsWith("https") ? https : http;
-    const chunks = [];
-
-    lib.get(url, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
-        "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
-        "Referer": referer,
-        "Sec-Fetch-Dest": "image",
-        "Sec-Fetch-Mode": "no-cors",
-        "Sec-Fetch-Site": "same-site",
-      },
-      timeout: 10000,
-    }, (res) => {
-      if ([301, 302, 307, 308].includes(res.statusCode) && res.headers.location)
-        return fetchRaw(res.headers.location, referer).then(resolve).catch(reject);
-
-      const contentType = res.headers["content-type"] || "";
-
-      // Tolak kalau bukan gambar (misal HTML error page dari server)
-      if (!contentType.startsWith("image/"))
-        return reject(new Error(`fetchRaw: bukan gambar (${contentType}, HTTP ${res.statusCode})`));
-
       res.on("data", c => chunks.push(c));
       res.on("end", () => resolve({ data: Buffer.concat(chunks), contentType }));
       res.on("error", reject);
