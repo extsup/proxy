@@ -106,7 +106,8 @@ module.exports = async (req, res) => {
       .toBuffer();
   } catch (sharpErr) {
     console.warn(`Sharp gagal: ${sharpErr.message}`);
-    return send(res, 422, { error: `Gagal memproses gambar: ${sharpErr.message}` });
+    console.warn(`contentType: ${contentType} | size: ${data.length} | preview: ${data.slice(0, 200).toString("utf8").replace(/\n/g, " ")}`);
+    return send(res, 422, { error: `Gagal memproses gambar: ${sharpErr.message}`, contentType, size: data.length });
   }
 
   res.setHeader("Content-Type", "image/webp");
