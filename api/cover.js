@@ -4,8 +4,6 @@ const { URL } = require("url");
 const sharp = require("sharp");
 
 const HOUR_LIMIT = 500;
-const MAX_REDIRECTS = 5;
-const MAX_IMAGE_SIZE = 20 * 1024 * 1024; // 20MB
 const rateLimit = new Map();
 
 setInterval(() => {
@@ -18,14 +16,6 @@ setInterval(() => {
 }, 600000);
 
 module.exports = async (req, res) => {
-  // CORS preflight
-  if (req.method === "OPTIONS") {
-    res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-    return res.status(204).end();
-  }
-
   if (req.method !== "GET") return send(res, 405, { error: "Method Not Allowed" });
 
   const { url, w, h, q, key, ...rest } = req.query || {};
@@ -51,14 +41,9 @@ module.exports = async (req, res) => {
 
   if (!url) return send(res, 400, { error: "Missing 'url' parameter" });
 
-  // Rekonstruksi imageUrl dari req.query — Vercel sudah pecah & menjadi key terpisah
-  // sehingga X-Amz-* params perlu digabungkan kembali ke imageUrl
   let imageUrl = decodeURIComponent(url);
-  const s3Params = Object.entries(req.query || {})
-    .filter(([k]) => !["url","w","h","q","key"].includes(k))
-    .map(([k, v]) => `${k}=${v}`)
-    .join("&");
-  if (s3Params) imageUrl += (imageUrl.includes("?") ? "&" : "?") + s3Params;
+  const extraParams = Object.entries(rest).map(([k, v]) => `${k}=${v}`).join("&");
+  if (extraParams) imageUrl += (imageUrl.includes("?") ? "&" : "?") + extraParams;
 
   let parsed;
   try { parsed = new URL(imageUrl); }
@@ -80,22 +65,13 @@ module.exports = async (req, res) => {
   const height  = h ? parseInt(h, 10) : null;
   const quality = Math.min(100, Math.max(10, parseInt(q || "85", 10)));
 
-  // Referer dari domain target + trailing slash
-  const referer = `${parsed.protocol}//${parsed.hostname}/`;
-
   let data, contentType;
   try {
-    ({ data, contentType } = await fetchImage(imageUrl, referer));
+    ({ data, contentType } = await fetchImage(imageUrl, parsed.origin));
   } catch (fetchErr) {
-    // Fallback ke DuckDuckGo proxy kalau fetch langsung gagal
-    console.warn(`Fetch langsung gagal (${fetchErr.message}), coba via DDG proxy...`);
-    const ddgUrl = `https://proxy.duckduckgo.com/iu/?u=${encodeURIComponent(imageUrl)}`;
-    try {
-      ({ data, contentType } = await fetchImage(ddgUrl, "https://duckduckgo.com/"));
-    } catch (ddgErr) {
-      console.warn(`DDG proxy gagal: ${ddgErr.message}`);
-      return send(res, 502, { error: `Fetch gagal: ${fetchErr.message} | DDG: ${ddgErr.message}` });
-    }
+    // Gagal fetch — redirect ke URL asli, biarkan browser load sendiri
+    console.warn(`Fetch gagal (${fetchErr.message}), redirect ke: ${imageUrl}`);
+    return res.redirect(302, imageUrl);
   }
 
   let output;
@@ -104,10 +80,10 @@ module.exports = async (req, res) => {
       .resize(width, height, { fit: "inside", withoutEnlargement: true })
       .webp({ quality })
       .toBuffer();
-  } catch (sharpErr) {
-    console.warn(`Sharp gagal: ${sharpErr.message}`);
-    console.warn(`contentType: ${contentType} | size: ${data.length} | preview: ${data.slice(0, 200).toString("utf8").replace(/\n/g, " ")}`);
-    return send(res, 422, { error: `Gagal memproses gambar: ${sharpErr.message}`, contentType, size: data.length });
+  } catch {
+    // Sharp gagal — redirect ke URL asli
+    console.warn(`Sharp gagal, redirect ke: ${imageUrl}`);
+    return res.redirect(302, imageUrl);
   }
 
   res.setHeader("Content-Type", "image/webp");
@@ -116,89 +92,29 @@ module.exports = async (req, res) => {
   res.status(200).send(output);
 };
 
-// Kumpulan UA untuk retry — desktop, mobile, bot-friendly
-const USER_AGENTS = [
-  // Mobile Chrome (Android) — paling sering lolos CF
-  "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
-  // Desktop Chrome
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-  // Mobile Safari (iOS)
-  "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
-  // Desktop Firefox
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
-];
-
-function buildHeaders(referer, uaIndex) {
-  const ua = USER_AGENTS[uaIndex % USER_AGENTS.length];
-  const isMobile = ua.includes("Mobile") || ua.includes("Android") || ua.includes("iPhone");
-  const isFirefox = ua.includes("Firefox");
-
-  return {
-    "User-Agent": ua,
-    "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
-    "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
-    "Accept-Encoding": "gzip, deflate, br",
-    "Cache-Control": "no-cache",
-    "Pragma": "no-cache",
-    "Connection": "keep-alive",
-    "Referer": referer,
-    "Sec-Fetch-Dest": "image",
-    "Sec-Fetch-Mode": "no-cors",
-    "Sec-Fetch-Site": "same-origin",
-    ...(isFirefox ? {} : {
-      "Sec-Ch-Ua": '"Chromium";v="120", "Google Chrome";v="120"',
-      "Sec-Ch-Ua-Mobile": isMobile ? "?1" : "?0",
-      "Sec-Ch-Ua-Platform": isMobile ? '"Android"' : '"Windows"',
-    }),
-  };
-}
-
-function fetchImage(url, referer, redirectCount = 0, uaIndex = 0) {
+function fetchImage(url, referer) {
   return new Promise((resolve, reject) => {
-    if (redirectCount > MAX_REDIRECTS)
-      return reject(new Error("Too many redirects"));
-
     const lib = url.startsWith("https") ? https : http;
     const chunks = [];
-    let totalSize = 0;
 
     lib.get(url, {
-      headers: buildHeaders(referer, uaIndex),
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+        "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Referer": referer,
+        "Sec-Fetch-Dest": "image",
+        "Sec-Fetch-Mode": "no-cors",
+        "Sec-Fetch-Site": "same-site",
+      },
       timeout: 10000,
     }, (res) => {
-      // Handle redirect dengan counter
       if ([301, 302, 307, 308].includes(res.statusCode) && res.headers.location)
-        return fetchImage(res.headers.location, referer, redirectCount + 1, uaIndex)
-          .then(resolve).catch(reject);
-
-      // 403 — retry dengan UA berikutnya
-      if (res.statusCode === 403 && uaIndex < USER_AGENTS.length - 1) {
-        console.warn(`403 dengan UA[${uaIndex}], retry UA[${uaIndex + 1}]...`);
-        res.resume(); // buang body response
-        return fetchImage(url, referer, redirectCount, uaIndex + 1)
-          .then(resolve).catch(reject);
-      }
-
+        return fetchImage(res.headers.location, referer).then(resolve).catch(reject);
       if (res.statusCode !== 200)
         return reject(new Error(`HTTP ${res.statusCode}`));
-
       const contentType = res.headers["content-type"] || "image/jpeg";
-
-      // Tolak kalau response bukan gambar (XML S3 expired, HTML error page, dll)
-      if (!contentType.startsWith("image/")) {
-        res.resume();
-        return reject(new Error(`Bukan gambar: ${contentType}`));
-      }
-
-      res.on("data", c => {
-        totalSize += c.length;
-        if (totalSize > MAX_IMAGE_SIZE) {
-          res.destroy();
-          return reject(new Error("Image too large (>20MB)"));
-        }
-        chunks.push(c);
-      });
-
+      res.on("data", c => chunks.push(c));
       res.on("end", () => resolve({ data: Buffer.concat(chunks), contentType }));
       res.on("error", reject);
     })
