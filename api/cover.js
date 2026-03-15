@@ -51,23 +51,14 @@ module.exports = async (req, res) => {
 
   if (!url) return send(res, 400, { error: "Missing 'url' parameter" });
 
-  // Ambil semua karakter setelah "url=" dari raw query string
-  // agar parameter seperti X-Amz-* yang mengandung & tidak ter-encode
-  // ikut tergabung sebagai bagian dari imageUrl, bukan param terpisah
-  let imageUrl;
-  try {
-    const rawQuery = req.url.split("?").slice(1).join("?");
-    const urlParamIndex = rawQuery.indexOf("url=");
-    if (urlParamIndex !== -1) {
-      // Ambil semua setelah "url=" — ini sudah include X-Amz-* params
-      const rawImageUrl = rawQuery.slice(urlParamIndex + 4);
-      imageUrl = decodeURIComponent(rawImageUrl);
-    } else {
-      imageUrl = decodeURIComponent(url);
-    }
-  } catch {
-    imageUrl = decodeURIComponent(url);
-  }
+  // Rekonstruksi imageUrl dari req.query — Vercel sudah pecah & menjadi key terpisah
+  // sehingga X-Amz-* params perlu digabungkan kembali ke imageUrl
+  let imageUrl = decodeURIComponent(url);
+  const s3Params = Object.entries(req.query || {})
+    .filter(([k]) => !["url","w","h","q","key"].includes(k))
+    .map(([k, v]) => `${k}=${v}`)
+    .join("&");
+  if (s3Params) imageUrl += (imageUrl.includes("?") ? "&" : "?") + s3Params;
 
   let parsed;
   try { parsed = new URL(imageUrl); }
