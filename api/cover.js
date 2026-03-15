@@ -4,6 +4,8 @@ const { URL } = require("url");
 const sharp = require("sharp");
 
 const HOUR_LIMIT = 500;
+const MAX_REDIRECTS = 5;
+const MAX_IMAGE_SIZE = 20 * 1024 * 1024; // 20MB
 const rateLimit = new Map();
 
 setInterval(() => {
@@ -16,6 +18,14 @@ setInterval(() => {
 }, 600000);
 
 module.exports = async (req, res) => {
+  // CORS preflight
+  if (req.method === "OPTIONS") {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    return res.status(204).end();
+  }
+
   if (req.method !== "GET") return send(res, 405, { error: "Method Not Allowed" });
 
   const { url, w, h, q, key, ...rest } = req.query || {};
@@ -65,11 +75,13 @@ module.exports = async (req, res) => {
   const height  = h ? parseInt(h, 10) : null;
   const quality = Math.min(100, Math.max(10, parseInt(q || "85", 10)));
 
+  // Referer dari domain target + trailing slash
+  const referer = `${parsed.protocol}//${parsed.hostname}/`;
+
   let data, contentType;
   try {
-    ({ data, contentType } = await fetchImage(imageUrl, parsed.origin));
+    ({ data, contentType } = await fetchImage(imageUrl, referer));
   } catch (fetchErr) {
-    // Gagal fetch — redirect ke URL asli, biarkan browser load sendiri
     console.warn(`Fetch gagal (${fetchErr.message}), redirect ke: ${imageUrl}`);
     return res.redirect(302, imageUrl);
   }
@@ -81,7 +93,6 @@ module.exports = async (req, res) => {
       .webp({ quality })
       .toBuffer();
   } catch {
-    // Sharp gagal — redirect ke URL asli
     console.warn(`Sharp gagal, redirect ke: ${imageUrl}`);
     return res.redirect(302, imageUrl);
   }
@@ -92,29 +103,54 @@ module.exports = async (req, res) => {
   res.status(200).send(output);
 };
 
-function fetchImage(url, referer) {
+function fetchImage(url, referer, redirectCount = 0) {
   return new Promise((resolve, reject) => {
+    // Batasi redirect maksimal 5x
+    if (redirectCount > MAX_REDIRECTS)
+      return reject(new Error("Too many redirects"));
+
     const lib = url.startsWith("https") ? https : http;
     const chunks = [];
+    let totalSize = 0;
 
     lib.get(url, {
       headers: {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
         "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Cache-Control": "no-cache",
+        "Pragma": "no-cache",
         "Referer": referer,
         "Sec-Fetch-Dest": "image",
         "Sec-Fetch-Mode": "no-cors",
-        "Sec-Fetch-Site": "same-site",
+        "Sec-Fetch-Site": "cross-site",
+        "Sec-Ch-Ua": '"Chromium";v="120", "Google Chrome";v="120"',
+        "Sec-Ch-Ua-Mobile": "?0",
+        "Sec-Ch-Ua-Platform": '"Windows"',
       },
       timeout: 10000,
     }, (res) => {
+      // Handle redirect dengan counter
       if ([301, 302, 307, 308].includes(res.statusCode) && res.headers.location)
-        return fetchImage(res.headers.location, referer).then(resolve).catch(reject);
+        return fetchImage(res.headers.location, referer, redirectCount + 1)
+          .then(resolve).catch(reject);
+
       if (res.statusCode !== 200)
         return reject(new Error(`HTTP ${res.statusCode}`));
+
       const contentType = res.headers["content-type"] || "image/jpeg";
-      res.on("data", c => chunks.push(c));
+
+      res.on("data", c => {
+        // Batasi ukuran response maksimal 20MB
+        totalSize += c.length;
+        if (totalSize > MAX_IMAGE_SIZE) {
+          res.destroy();
+          return reject(new Error("Image too large (>20MB)"));
+        }
+        chunks.push(c);
+      });
+
       res.on("end", () => resolve({ data: Buffer.concat(chunks), contentType }));
       res.on("error", reject);
     })
