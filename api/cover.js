@@ -51,9 +51,23 @@ module.exports = async (req, res) => {
 
   if (!url) return send(res, 400, { error: "Missing 'url' parameter" });
 
-  let imageUrl = decodeURIComponent(url);
-  const extraParams = Object.entries(rest).map(([k, v]) => `${k}=${v}`).join("&");
-  if (extraParams) imageUrl += (imageUrl.includes("?") ? "&" : "?") + extraParams;
+  // Ambil semua karakter setelah "url=" dari raw query string
+  // agar parameter seperti X-Amz-* yang mengandung & tidak ter-encode
+  // ikut tergabung sebagai bagian dari imageUrl, bukan param terpisah
+  let imageUrl;
+  try {
+    const rawQuery = req.url.split("?").slice(1).join("?");
+    const urlParamIndex = rawQuery.indexOf("url=");
+    if (urlParamIndex !== -1) {
+      // Ambil semua setelah "url=" — ini sudah include X-Amz-* params
+      const rawImageUrl = rawQuery.slice(urlParamIndex + 4);
+      imageUrl = decodeURIComponent(rawImageUrl);
+    } else {
+      imageUrl = decodeURIComponent(url);
+    }
+  } catch {
+    imageUrl = decodeURIComponent(url);
+  }
 
   let parsed;
   try { parsed = new URL(imageUrl); }
@@ -82,8 +96,15 @@ module.exports = async (req, res) => {
   try {
     ({ data, contentType } = await fetchImage(imageUrl, referer));
   } catch (fetchErr) {
-    console.warn(`Fetch gagal: ${fetchErr.message}`);
-    return send(res, 502, { error: `Fetch gagal: ${fetchErr.message}` });
+    // Fallback ke DuckDuckGo proxy kalau fetch langsung gagal
+    console.warn(`Fetch langsung gagal (${fetchErr.message}), coba via DDG proxy...`);
+    const ddgUrl = `https://proxy.duckduckgo.com/iu/?u=${encodeURIComponent(imageUrl)}`;
+    try {
+      ({ data, contentType } = await fetchImage(ddgUrl, "https://duckduckgo.com/"));
+    } catch (ddgErr) {
+      console.warn(`DDG proxy gagal: ${ddgErr.message}`);
+      return send(res, 502, { error: `Fetch gagal: ${fetchErr.message} | DDG: ${ddgErr.message}` });
+    }
   }
 
   let output;
