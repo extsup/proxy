@@ -136,7 +136,6 @@ function fetchImage(url, referer) {
   });
 }
 
-// Fetch tanpa syarat status code — untuk fallback gambar asli
 function fetchRaw(url, referer) {
   return new Promise((resolve, reject) => {
     const lib = url.startsWith("https") ? https : http;
@@ -156,8 +155,13 @@ function fetchRaw(url, referer) {
     }, (res) => {
       if ([301, 302, 307, 308].includes(res.statusCode) && res.headers.location)
         return fetchRaw(res.headers.location, referer).then(resolve).catch(reject);
-      // Terima semua status, ambil data apa adanya
-      const contentType = res.headers["content-type"] || "image/jpeg";
+
+      const contentType = res.headers["content-type"] || "";
+
+      // Tolak kalau bukan gambar (misal HTML error page dari server)
+      if (!contentType.startsWith("image/"))
+        return reject(new Error(`fetchRaw: bukan gambar (${contentType}, HTTP ${res.statusCode})`));
+
       res.on("data", c => chunks.push(c));
       res.on("end", () => resolve({ data: Buffer.concat(chunks), contentType }));
       res.on("error", reject);
