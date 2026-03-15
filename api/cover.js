@@ -82,8 +82,8 @@ module.exports = async (req, res) => {
   try {
     ({ data, contentType } = await fetchImage(imageUrl, referer));
   } catch (fetchErr) {
-    console.warn(`Fetch gagal (${fetchErr.message}), redirect ke: ${imageUrl}`);
-    return res.redirect(302, imageUrl);
+    console.warn(`Fetch gagal: ${fetchErr.message}`);
+    return send(res, 502, { error: `Fetch gagal: ${fetchErr.message}` });
   }
 
   let output;
@@ -92,9 +92,9 @@ module.exports = async (req, res) => {
       .resize(width, height, { fit: "inside", withoutEnlargement: true })
       .webp({ quality })
       .toBuffer();
-  } catch {
-    console.warn(`Sharp gagal, redirect ke: ${imageUrl}`);
-    return res.redirect(302, imageUrl);
+  } catch (sharpErr) {
+    console.warn(`Sharp gagal: ${sharpErr.message}`);
+    return send(res, 422, { error: `Gagal memproses gambar: ${sharpErr.message}` });
   }
 
   res.setHeader("Content-Type", "image/webp");
