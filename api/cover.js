@@ -192,6 +192,12 @@ function fetchImage(url, referer, redirectCount = 0, uaIndex = 0) {
 
       const contentType = res.headers["content-type"] || "image/jpeg";
 
+      // Tolak kalau response bukan gambar (XML S3 expired, HTML error page, dll)
+      if (!contentType.startsWith("image/")) {
+        res.resume();
+        return reject(new Error(`Bukan gambar: ${contentType}`));
+      }
+
       res.on("data", c => {
         totalSize += c.length;
         if (totalSize > MAX_IMAGE_SIZE) {
