@@ -103,9 +103,45 @@ module.exports = async (req, res) => {
   res.status(200).send(output);
 };
 
-function fetchImage(url, referer, redirectCount = 0) {
+// Kumpulan UA untuk retry — desktop, mobile, bot-friendly
+const USER_AGENTS = [
+  // Mobile Chrome (Android) — paling sering lolos CF
+  "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+  // Desktop Chrome
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+  // Mobile Safari (iOS)
+  "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+  // Desktop Firefox
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
+];
+
+function buildHeaders(referer, uaIndex) {
+  const ua = USER_AGENTS[uaIndex % USER_AGENTS.length];
+  const isMobile = ua.includes("Mobile") || ua.includes("Android") || ua.includes("iPhone");
+  const isFirefox = ua.includes("Firefox");
+
+  return {
+    "User-Agent": ua,
+    "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+    "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Cache-Control": "no-cache",
+    "Pragma": "no-cache",
+    "Connection": "keep-alive",
+    "Referer": referer,
+    "Sec-Fetch-Dest": "image",
+    "Sec-Fetch-Mode": "no-cors",
+    "Sec-Fetch-Site": "same-origin",
+    ...(isFirefox ? {} : {
+      "Sec-Ch-Ua": '"Chromium";v="120", "Google Chrome";v="120"',
+      "Sec-Ch-Ua-Mobile": isMobile ? "?1" : "?0",
+      "Sec-Ch-Ua-Platform": isMobile ? '"Android"' : '"Windows"',
+    }),
+  };
+}
+
+function fetchImage(url, referer, redirectCount = 0, uaIndex = 0) {
   return new Promise((resolve, reject) => {
-    // Batasi redirect maksimal 5x
     if (redirectCount > MAX_REDIRECTS)
       return reject(new Error("Too many redirects"));
 
@@ -114,27 +150,21 @@ function fetchImage(url, referer, redirectCount = 0) {
     let totalSize = 0;
 
     lib.get(url, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
-        "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
-        "Accept-Encoding": "gzip, deflate, br",
-        "Cache-Control": "no-cache",
-        "Pragma": "no-cache",
-        "Referer": referer,
-        "Sec-Fetch-Dest": "image",
-        "Sec-Fetch-Mode": "no-cors",
-        "Sec-Fetch-Site": "cross-site",
-        "Sec-Ch-Ua": '"Chromium";v="120", "Google Chrome";v="120"',
-        "Sec-Ch-Ua-Mobile": "?0",
-        "Sec-Ch-Ua-Platform": '"Windows"',
-      },
+      headers: buildHeaders(referer, uaIndex),
       timeout: 10000,
     }, (res) => {
       // Handle redirect dengan counter
       if ([301, 302, 307, 308].includes(res.statusCode) && res.headers.location)
-        return fetchImage(res.headers.location, referer, redirectCount + 1)
+        return fetchImage(res.headers.location, referer, redirectCount + 1, uaIndex)
           .then(resolve).catch(reject);
+
+      // 403 — retry dengan UA berikutnya
+      if (res.statusCode === 403 && uaIndex < USER_AGENTS.length - 1) {
+        console.warn(`403 dengan UA[${uaIndex}], retry UA[${uaIndex + 1}]...`);
+        res.resume(); // buang body response
+        return fetchImage(url, referer, redirectCount, uaIndex + 1)
+          .then(resolve).catch(reject);
+      }
 
       if (res.statusCode !== 200)
         return reject(new Error(`HTTP ${res.statusCode}`));
@@ -142,7 +172,6 @@ function fetchImage(url, referer, redirectCount = 0) {
       const contentType = res.headers["content-type"] || "image/jpeg";
 
       res.on("data", c => {
-        // Batasi ukuran response maksimal 20MB
         totalSize += c.length;
         if (totalSize > MAX_IMAGE_SIZE) {
           res.destroy();
