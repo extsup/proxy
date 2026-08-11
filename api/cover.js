@@ -33,11 +33,18 @@ module.exports = async (req, res) => {
     return send(res, 400, { error: "Protocol tidak didukung" });
   }
 
-  // Komikcast (minio.imgkc1.my.id): redirect langsung ke URL asli
-  if (parsed.hostname === "minio.imgkc1.my.id") {
-    res.writeHead(302, { Location: imageUrl });
-    return res.end();
+  // Komikcast (minio.imgkc1.my.id): proxy langsung, jangan redirect
+if (parsed.hostname === "minio.imgkc1.my.id") {
+  try {
+    const { data, contentType } = await fetchImage(imageUrl, "https://komikcast.io/");
+    res.setHeader("Content-Type", contentType || "image/webp");
+    res.setHeader("Cache-Control", "public, max-age=86400, s-maxage=86400");
+    res.setHeader("Content-Length", data.length);
+    return res.status(200).send(data);
+  } catch (err) {
+    return send(res, 502, { error: "Gagal fetch MinIO", detail: err.message });
   }
+}
 
   // MGKomik dan sumber lain: tetap proxy gambar
   try {
