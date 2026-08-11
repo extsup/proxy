@@ -2,293 +2,108 @@ const https = require("https");
 const http = require("http");
 const { URL } = require("url");
 
-export const config = {
-  api: {
-    bodyParser: false,
-  },
-};
+export const config = { api: { bodyParser: false } };
 
 module.exports = async (req, res) => {
-  // ============================================================
-  // CORS
-  // ============================================================
-
   res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader(
-    "Access-Control-Allow-Methods",
-    "GET, OPTIONS",
-  );
+  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "*");
 
-  if (req.method === "OPTIONS") {
-    return res.status(204).end();
-  }
+  if (req.method === "OPTIONS") return res.status(204).end();
+  if (req.method !== "GET") return send(res, 405, { error: "Method Not Allowed" });
 
-  // ============================================================
-  // Only GET
-  // ============================================================
-
-  if (req.method !== "GET") {
-    return send(res, 405, {
-      error: "Method Not Allowed",
-    });
-  }
-
-  // ============================================================
-  // Get URL
-  // ============================================================
-  //
-  // Ambil raw parameter langsung dari req.url.
-  //
-  // Ini penting untuk Komikcast/MinIO karena URL mereka
-  // memiliki banyak parameter:
-  //
-  // ?X-Amz-Algorithm=...
-  // &X-Amz-Credential=...
-  // &X-Amz-Date=...
-  // &X-Amz-Expires=...
-  // &X-Amz-Signature=...
-  //
-  // Kalau memakai req.query.url secara biasa, parameter
-  // setelah "&" dapat dianggap sebagai query milik proxy.
-  //
-  // decodeURIComponent() dilakukan satu kali agar URL
-  // presigned tetap utuh.
-  // ============================================================
-
-  const rawQuery = req.url?.split("?")[1] || "";
-
-  const urlMatch = rawQuery.match(
-    /(?:^|&)url=([^&]*(?:%26[^&]*)*)/,
-  );
-
-  if (!urlMatch) {
-    return send(res, 400, {
-      error: "Missing 'url' parameter",
-    });
-  }
+  const { url } = req.query || {};
+  if (!url) return send(res, 400, { error: "Missing 'url' parameter" });
 
   let imageUrl;
-
   try {
-    imageUrl = decodeURIComponent(urlMatch[1]);
+    imageUrl = decodeURIComponent(url);
   } catch {
-    return send(res, 400, {
-      error: "URL tidak dapat di-decode",
-    });
+    return send(res, 400, { error: "URL tidak dapat di-decode" });
   }
 
-  // ============================================================
-  // Validate URL
-  // ============================================================
-
   let parsed;
-
   try {
     parsed = new URL(imageUrl);
   } catch {
-    return send(res, 400, {
-      error: "URL gambar tidak valid",
-      url: imageUrl,
-    });
+    return send(res, 400, { error: "URL gambar tidak valid" });
   }
 
   if (!["http:", "https:"].includes(parsed.protocol)) {
-    return send(res, 400, {
-      error: "Protocol tidak didukung",
-    });
+    return send(res, 400, { error: "Protocol tidak didukung" });
   }
 
-  // ============================================================
-  // Fetch image
-  // ============================================================
+  // Komikcast: keluarkan URL yang sudah di-encode
+  if (parsed.hostname === "minio.imgkc1.my.id") {
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    return res.send(encodeURIComponent(imageUrl));
+  }
 
+  // MGKomik dan sumber lain: tetap proxy gambar
   try {
     const { data, contentType } = await fetchImage(
       imageUrl,
       "https://web1.mgkomik.cc/",
     );
 
-    res.setHeader(
-      "Content-Type",
-      contentType || "image/webp",
-    );
-
-    res.setHeader(
-      "Cache-Control",
-      "public, max-age=86400, s-maxage=86400",
-    );
-
-    res.setHeader(
-      "Content-Length",
-      data.length,
-    );
-
+    res.setHeader("Content-Type", contentType || "image/webp");
+    res.setHeader("Cache-Control", "public, max-age=86400, s-maxage=86400");
+    res.setHeader("Content-Length", data.length);
     return res.status(200).send(data);
-
   } catch (err) {
-    console.error(
-      `Fetch gambar gagal: ${err.message}`,
-    );
-
     return send(res, 502, {
       error: "Gagal mengambil gambar",
       detail: err.message,
-      url: imageUrl,
     });
   }
 };
 
-// ================================================================
-// Fetch image with redirect support
-// ================================================================
-
-function fetchImage(
-  url,
-  referer,
-  redirectCount = 0,
-) {
+function fetchImage(url, referer, redirects = 0) {
   return new Promise((resolve, reject) => {
-    if (redirectCount > 5) {
-      return reject(
-        new Error("Terlalu banyak redirect"),
-      );
-    }
+    if (redirects > 5) return reject(new Error("Terlalu banyak redirect"));
 
-    const lib = url.startsWith("https:")
-      ? https
-      : http;
+    const lib = url.startsWith("https:") ? https : http;
 
-    const request = lib.get(
-      url,
-      {
-        headers: {
-          "User-Agent":
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
-
-          "Accept":
-            "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
-
-          "Accept-Language":
-            "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
-
-          // Tetap pakai Referer MGKomik.
-          // Ini yang sebelumnya membuat MGKomik berhasil.
-          "Referer": referer,
-
-          "Sec-Fetch-Dest": "image",
-          "Sec-Fetch-Mode": "no-cors",
-          "Sec-Fetch-Site": "same-site",
-        },
-
-        timeout: 15000,
+    lib.get(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+        "Referer": referer,
       },
+      timeout: 15000,
+    }, response => {
+      if ([301, 302, 303, 307, 308].includes(response.statusCode) &&
+          response.headers.location) {
+        const next = new URL(response.headers.location, url).toString();
+        response.resume();
+        return fetchImage(next, referer, redirects + 1).then(resolve).catch(reject);
+      }
 
-      (response) => {
-        // ========================================================
-        // Redirect
-        // ========================================================
+      if (response.statusCode !== 200) {
+        response.resume();
+        return reject(new Error(`HTTP ${response.statusCode}`));
+      }
 
-        if (
-          [301, 302, 303, 307, 308].includes(
-            response.statusCode,
-          ) &&
-          response.headers.location
-        ) {
-          const location = new URL(
-            response.headers.location,
-            url,
-          ).toString();
-
-          console.log(
-            `Redirect ${response.statusCode}: ${url} -> ${location}`,
-          );
-
-          response.resume();
-
-          return fetchImage(
-            location,
-            referer,
-            redirectCount + 1,
-          )
-            .then(resolve)
-            .catch(reject);
-        }
-
-        // ========================================================
-        // HTTP error
-        // ========================================================
-
-        if (response.statusCode !== 200) {
-          response.resume();
-
-          return reject(
-            new Error(
-              `HTTP ${response.statusCode}`,
-            ),
-          );
-        }
-
-        // ========================================================
-        // Content type
-        // ========================================================
-
-        const contentType =
-          response.headers["content-type"] ||
-          "application/octet-stream";
-
-        const chunks = [];
-
-        // ========================================================
-        // Receive data
-        // ========================================================
-
-        response.on("data", (chunk) => {
-          chunks.push(chunk);
-        });
-
-        response.on("end", () => {
-          const data = Buffer.concat(chunks);
-
-          if (!data.length) {
-            return reject(
-              new Error("Response gambar kosong"),
-            );
-          }
-
-          resolve({
-            data,
-            contentType,
-          });
-        });
-
-        response.on("error", reject);
-      },
-    );
-
-    request.on("error", reject);
-
-    request.on("timeout", () => {
-      request.destroy();
-
-      reject(
-        new Error("Request timeout"),
-      );
+      const chunks = [];
+      response.on("data", c => chunks.push(c));
+      response.on("end", () => {
+        const data = Buffer.concat(chunks);
+        data.length
+          ? resolve({
+              data,
+              contentType: response.headers["content-type"],
+            })
+          : reject(new Error("Response gambar kosong"));
+      });
+      response.on("error", reject);
+    }).on("error", reject).on("timeout", function () {
+      this.destroy();
+      reject(new Error("Request timeout"));
     });
   });
 }
 
-// ================================================================
-// JSON response
-// ================================================================
-
 function send(res, status, body) {
-  res.setHeader(
-    "Content-Type",
-    "application/json; charset=utf-8",
-  );
-
-  return res
-    .status(status)
-    .json(body);
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
+  return res.status(status).json(body);
 }
