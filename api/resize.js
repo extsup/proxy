@@ -13,7 +13,7 @@ module.exports = async (req, res) => {
   if (req.method === "OPTIONS") return res.status(204).end();
   if (req.method !== "GET") return send(res, 405, { error: "Method Not Allowed" });
 
-  const { url, w, h, q } = req.query || {};
+  const { url, w, h, q, ...rest } = req.query || {};
   if (!url) return send(res, 400, { error: "Missing 'url' parameter" });
 
   let imageUrl;
@@ -22,6 +22,10 @@ module.exports = async (req, res) => {
   } catch {
     return send(res, 400, { error: "URL tidak dapat di-decode" });
   }
+
+  // Sambung kembali sisa query params (X-Amz-*, dll) ke imageUrl
+  const extraParams = Object.entries(rest).map(([k, v]) => `${k}=${v}`).join("&");
+  if (extraParams) imageUrl += (imageUrl.includes("?") ? "&" : "?") + extraParams;
 
   let parsed;
   try {
