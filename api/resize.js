@@ -5,6 +5,26 @@ const sharp = require("sharp");
 
 export const config = { api: { bodyParser: false } };
 
+// =============================================
+// REFERER MAP - tambah domain baru di sini
+// format: "hostname": "referer"
+// =============================================
+const REFERER_MAP = {
+  "minio.imgkc1.my.id": null,         // gunakan imageUrl sendiri sebagai referer
+  "mgkomik.cc": "https://web1.mgkomik.cc/",
+  "web1.mgkomik.cc": "https://web1.mgkomik.cc/",
+  // "cdn.kiryuu.id": "https://kiryuu.id/",
+  // "img.shinigami.asia": "https://shinigami.asia/",
+};
+
+function getReferer(hostname, imageUrl) {
+  for (const [key, val] of Object.entries(REFERER_MAP)) {
+    if (hostname.includes(key)) return val ?? imageUrl;
+  }
+  return imageUrl; // default: referer = url gambar itu sendiri
+}
+// =============================================
+
 module.exports = async (req, res) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
@@ -42,9 +62,11 @@ module.exports = async (req, res) => {
   const height  = h ? parseInt(h, 10) : null;
   const quality = Math.min(100, Math.max(10, parseInt(q || "80", 10)));
 
+  const referer = getReferer(parsed.hostname, imageUrl);
+
   let data;
   try {
-    ({ data } = await fetchImage(imageUrl, imageUrl));
+    ({ data } = await fetchImage(imageUrl, referer));
   } catch (err) {
     console.warn(`Fetch gagal (${err.message}), redirect ke: ${imageUrl}`);
     return res.redirect(302, imageUrl);
