@@ -1,6 +1,7 @@
 const https = require("https");
 const http = require("http");
 const { URL } = require("url");
+const sharp = require("sharp");
 
 export const config = { api: { bodyParser: false } };
 
@@ -12,7 +13,7 @@ module.exports = async (req, res) => {
   if (req.method === "OPTIONS") return res.status(204).end();
   if (req.method !== "GET") return send(res, 405, { error: "Method Not Allowed" });
 
-  const { url } = req.query || {};
+  const { url, w, h } = req.query || {};
   if (!url) return send(res, 400, { error: "Missing 'url' parameter" });
 
   let imageUrl;
@@ -33,30 +34,33 @@ module.exports = async (req, res) => {
     return send(res, 400, { error: "Protocol tidak didukung" });
   }
 
-  // Komikcast (minio.imgkc1.my.id): proxy langsung, jangan redirect
-if (parsed.hostname === "minio.imgkc1.my.id") {
-  try {
-    const { data, contentType } = await fetchImage(imageUrl, "https://komikcast.io/");
-    res.setHeader("Content-Type", contentType || "image/webp");
-    res.setHeader("Cache-Control", "public, max-age=86400, s-maxage=86400");
-    res.setHeader("Content-Length", data.length);
-    return res.status(200).send(data);
-  } catch (err) {
-    return send(res, 502, { error: "Gagal fetch MinIO", detail: err.message });
-  }
-}
+  const referer = parsed.hostname === "minio.imgkc1.my.id"
+    ? "https://komikcast.io/"
+    : "https://web1.mgkomik.cc/";
 
-  // MGKomik dan sumber lain: tetap proxy gambar
   try {
-    const { data, contentType } = await fetchImage(
-      imageUrl,
-      "https://web1.mgkomik.cc/",
-    );
+    const { data } = await fetchImage(imageUrl, referer);
 
-    res.setHeader("Content-Type", contentType || "image/webp");
+    const width = w ? parseInt(w) : null;
+    const height = h ? parseInt(h) : null;
+
+    let pipeline = sharp(data);
+
+    if (width || height) {
+      pipeline = pipeline.resize({
+        width: width || undefined,
+        height: height || undefined,
+        fit: "cover",
+        position: "top",
+      });
+    }
+
+    const output = await pipeline.webp({ quality: 80 }).toBuffer();
+
+    res.setHeader("Content-Type", "image/webp");
     res.setHeader("Cache-Control", "public, max-age=86400, s-maxage=86400");
-    res.setHeader("Content-Length", data.length);
-    return res.status(200).send(data);
+    res.setHeader("Content-Length", output.length);
+    return res.status(200).send(output);
   } catch (err) {
     return send(res, 502, {
       error: "Gagal mengambil gambar",
@@ -96,10 +100,7 @@ function fetchImage(url, referer, redirects = 0) {
       response.on("end", () => {
         const data = Buffer.concat(chunks);
         data.length
-          ? resolve({
-              data,
-              contentType: response.headers["content-type"],
-            })
+          ? resolve({ data, contentType: response.headers["content-type"] })
           : reject(new Error("Response gambar kosong"));
       });
       response.on("error", reject);
