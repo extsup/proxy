@@ -33,10 +33,10 @@ module.exports = async (req, res) => {
     return send(res, 400, { error: "Protocol tidak didukung" });
   }
 
-  // Komikcast: keluarkan URL yang sudah di-encode
+  // Komikcast (minio.imgkc1.my.id): redirect langsung ke URL asli
   if (parsed.hostname === "minio.imgkc1.my.id") {
-    res.setHeader("Content-Type", "text/plain; charset=utf-8");
-    return res.send(encodeURIComponent(imageUrl));
+    res.writeHead(302, { Location: imageUrl });
+    return res.end();
   }
 
   // MGKomik dan sumber lain: tetap proxy gambar
