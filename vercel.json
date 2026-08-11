@@ -1,10 +1,18 @@
 {
   "rewrites": [
-    { "source": "/cover", "destination": "/api/cover" }
+    { "source": "/cover", "destination": "/api/cover" },
+    { "source": "/resize", "destination": "/api/resize" }
   ],
   "headers": [
     {
       "source": "/api/cover",
+      "headers": [
+        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Access-Control-Allow-Methods", "value": "GET, OPTIONS" }
+      ]
+    },
+    {
+      "source": "/api/resize",
       "headers": [
         { "key": "Access-Control-Allow-Origin", "value": "*" },
         { "key": "Access-Control-Allow-Methods", "value": "GET, OPTIONS" }
