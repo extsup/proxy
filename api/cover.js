@@ -13,7 +13,7 @@ module.exports = async (req, res) => {
   if (req.method === "OPTIONS") return res.status(204).end();
   if (req.method !== "GET") return send(res, 405, { error: "Method Not Allowed" });
 
-  const { url, w, h } = req.query || {};
+  const { url, w, h, q } = req.query || {};
   if (!url) return send(res, 400, { error: "Missing 'url' parameter" });
 
   let imageUrl;
@@ -34,39 +34,33 @@ module.exports = async (req, res) => {
     return send(res, 400, { error: "Protocol tidak didukung" });
   }
 
-  const referer = parsed.hostname === "minio.imgkc1.my.id"
-    ? "https://komikcast.io/"
-    : "https://web1.mgkomik.cc/";
+  const width   = w ? parseInt(w, 10) : null;
+  const height  = h ? parseInt(h, 10) : null;
+  const quality = Math.min(100, Math.max(10, parseInt(q || "80", 10)));
 
+  let data;
   try {
-    const { data } = await fetchImage(imageUrl, referer);
-
-    const width = w ? parseInt(w) : null;
-    const height = h ? parseInt(h) : null;
-
-    let pipeline = sharp(data);
-
-    if (width || height) {
-      pipeline = pipeline.resize({
-        width: width || undefined,
-        height: height || undefined,
-        fit: "cover",
-        position: "top",
-      });
-    }
-
-    const output = await pipeline.webp({ quality: 80 }).toBuffer();
-
-    res.setHeader("Content-Type", "image/webp");
-    res.setHeader("Cache-Control", "public, max-age=86400, s-maxage=86400");
-    res.setHeader("Content-Length", output.length);
-    return res.status(200).send(output);
+    ({ data } = await fetchImage(imageUrl, imageUrl));
   } catch (err) {
-    return send(res, 502, {
-      error: "Gagal mengambil gambar",
-      detail: err.message,
-    });
+    console.warn(`Fetch gagal (${err.message}), redirect ke: ${imageUrl}`);
+    return res.redirect(302, imageUrl);
   }
+
+  let output;
+  try {
+    output = await sharp(data)
+      .resize(width, height, { fit: "cover", position: "top" })
+      .webp({ quality })
+      .toBuffer();
+  } catch (err) {
+    console.warn(`Sharp gagal (${err.message}), redirect ke: ${imageUrl}`);
+    return res.redirect(302, imageUrl);
+  }
+
+  res.setHeader("Content-Type", "image/webp");
+  res.setHeader("Cache-Control", "public, max-age=86400, s-maxage=86400");
+  res.setHeader("Content-Length", output.length);
+  return res.status(200).send(output);
 };
 
 function fetchImage(url, referer, redirects = 0) {
@@ -77,19 +71,15 @@ function fetchImage(url, referer, redirects = 0) {
 
     lib.get(url, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Accept-Encoding": "gzip, deflate, br",
+        "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
         "Referer": referer,
-        "Origin": referer.replace(/\/$/, ""),
         "Sec-Fetch-Dest": "image",
         "Sec-Fetch-Mode": "no-cors",
-        "Sec-Fetch-Site": "cross-site",
-        "Cache-Control": "no-cache",
-        "Pragma": "no-cache",
+        "Sec-Fetch-Site": "same-site",
       },
-      timeout: 15000,
+      timeout: 10000,
     }, response => {
       if ([301, 302, 303, 307, 308].includes(response.statusCode) &&
           response.headers.location) {
