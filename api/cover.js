@@ -37,10 +37,32 @@ module.exports = async (req, res) => {
   // ============================================================
   // Get URL
   // ============================================================
+  //
+  // Ambil raw parameter langsung dari req.url.
+  //
+  // Ini penting untuk Komikcast/MinIO karena URL mereka
+  // memiliki banyak parameter:
+  //
+  // ?X-Amz-Algorithm=...
+  // &X-Amz-Credential=...
+  // &X-Amz-Date=...
+  // &X-Amz-Expires=...
+  // &X-Amz-Signature=...
+  //
+  // Kalau memakai req.query.url secara biasa, parameter
+  // setelah "&" dapat dianggap sebagai query milik proxy.
+  //
+  // decodeURIComponent() dilakukan satu kali agar URL
+  // presigned tetap utuh.
+  // ============================================================
 
-  const { url } = req.query || {};
+  const rawQuery = req.url?.split("?")[1] || "";
 
-  if (!url) {
+  const urlMatch = rawQuery.match(
+    /(?:^|&)url=([^&]*(?:%26[^&]*)*)/,
+  );
+
+  if (!urlMatch) {
     return send(res, 400, {
       error: "Missing 'url' parameter",
     });
@@ -49,7 +71,7 @@ module.exports = async (req, res) => {
   let imageUrl;
 
   try {
-    imageUrl = decodeURIComponent(url);
+    imageUrl = decodeURIComponent(urlMatch[1]);
   } catch {
     return send(res, 400, {
       error: "URL tidak dapat di-decode",
@@ -67,6 +89,7 @@ module.exports = async (req, res) => {
   } catch {
     return send(res, 400, {
       error: "URL gambar tidak valid",
+      url: imageUrl,
     });
   }
 
@@ -111,6 +134,7 @@ module.exports = async (req, res) => {
     return send(res, 502, {
       error: "Gagal mengambil gambar",
       detail: err.message,
+      url: imageUrl,
     });
   }
 };
@@ -148,6 +172,8 @@ function fetchImage(
           "Accept-Language":
             "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
 
+          // Tetap pakai Referer MGKomik.
+          // Ini yang sebelumnya membuat MGKomik berhasil.
           "Referer": referer,
 
           "Sec-Fetch-Dest": "image",
